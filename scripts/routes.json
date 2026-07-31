@@ -1,0 +1,35 @@
+{
+  "routes": [
+    { "path": "/login",                                    "module": "src/pages/Login.jsx",               "auth": "public" },
+    { "path": "/forgot-password",                          "module": "src/pages/ForgotPassword.jsx",     "auth": "public" },
+    { "path": "/reset-password/dummy-token",               "module": "src/pages/ResetPassword.jsx",      "auth": "public" },
+
+    { "path": "/",                                         "module": "src/pages/Home.jsx",               "auth": "user" },
+    { "path": "/intake/new",                               "module": "src/pages/Intake.jsx",             "auth": "user" },
+    { "path": "/expense/new",                              "module": "src/pages/Expense.jsx",            "auth": "user" },
+    { "path": "/transactions",                             "module": "src/pages/Transactions.jsx",       "auth": "user" },
+    { "path": "/transactions/dummy-id",                    "module": "src/pages/TransactionDetail.jsx",  "auth": "user" },
+    { "path": "/transactions/dummy-id/edit",               "module": "src/pages/TransactionEdit.jsx",    "auth": "user" },
+    { "path": "/categories",                               "module": "src/pages/Categories.jsx",         "auth": "user" },
+    { "path": "/dashboard",                                "module": "src/pages/Dashboard.jsx",          "auth": "user" },
+    { "path": "/close-day",                                "module": "src/pages/CloseDay.jsx",           "auth": "user" },
+    { "path": "/notifications",                            "module": "src/pages/Notifications.jsx",      "auth": "user" },
+
+    { "path": "/admin/dashboard",                          "module": "src/pages/AdminDashboard.jsx",     "auth": "admin" },
+    { "path": "/admin/users",                              "module": "src/pages/AdminUsers.jsx",         "auth": "admin" },
+    { "path": "/admin/users/new",                          "module": "src/pages/AdminUserNew.jsx",       "auth": "admin" },
+    { "path": "/admin/users/dummy-id",                     "module": "src/pages/AdminUserDetail.jsx",    "auth": "admin" },
+    { "path": "/admin/users/dummy-id/close-day",           "module": "src/pages/AdminUserCloseDay.jsx",  "auth": "admin" },
+    { "path": "/admin/categories",                         "module": "src/pages/AdminCategories.jsx",    "auth": "admin" },
+    { "path": "/admin/transactions",                       "module": "src/pages/AdminTransactions.jsx",  "auth": "admin" },
+    { "path": "/admin/transactions/dummy-id",              "module": "src/pages/AdminTransactionDetail.jsx", "auth": "admin" },
+    { "path": "/admin/search",                             "module": "src/pages/AdminSearch.jsx",        "auth": "admin" },
+    { "path": "/admin/reports",                            "module": "src/pages/AdminReports.jsx",       "auth": "admin" },
+    { "path": "/admin/exports",                            "module": "src/pages/AdminExports.jsx",       "auth": "admin" },
+    { "path": "/admin/storage",                            "module": "src/pages/AdminStorage.jsx",       "auth": "admin" },
+    { "path": "/admin/cron",                               "module": "src/pages/AdminCron.jsx",          "auth": "admin" },
+    { "path": "/admin/budgets",                            "module": "src/pages/AdminBudgets.jsx",       "auth": "admin" },
+    { "path": "/admin/recurring",                          "module": "src/pages/AdminRecurring.jsx",     "auth": "admin" },
+    { "path": "/admin/audit",                              "module": "src/pages/AdminAudit.jsx",         "auth": "admin" }
+  ]
+}

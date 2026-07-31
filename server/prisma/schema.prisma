@@ -1,0 +1,364 @@
+// FOP server — Prisma schema.
+// Dev uses SQLite (no setup). To switch to Postgres in production:
+//   1. Change provider to "postgresql"
+//   2. Update DATABASE_URL in .env
+//   3. Run `prisma migrate dev --name init_postgres`
+//
+// Money is integer paisa (BIGINT). Display via Intl.NumberFormat with 2 decimals.
+// Per .agent/builder.json constraints.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// --- User -----------------------------------------------------------------
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  username      String   @unique
+  name          String
+  phone         String?
+  passwordHash  String
+  role          String   @default("USER") // "ADMIN" | "USER" — SQLite has no native enum
+  isActive      Boolean  @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  passwordResetTokens PasswordResetToken[]
+  auditLogs           AuditLog[] @relation("ActorOnAuditLog")
+  categories          UserCategory[]
+  subCategories       SubCategory[]
+  transactionsPosted  Transaction[] @relation("TransactionsPostedBy")
+  transactionEdits    TransactionEdit[] @relation("EditsBy")
+  dayClosesOwned      DayClose[] @relation("DayClosesOwned")
+  dayClosesByProxy    DayClose[] @relation("DayClosesClosedBy")
+  triggeredJobRuns    JobRun[]
+  ownedAlerts         Alert[]  @relation("OwnedAlerts")
+
+  @@index([isActive])
+  @@index([role, isActive])
+}
+
+// --- Department -------------------------------------------------------------
+// Per docs/backend/features/03-categories-admin.md § 1.3 — added in M1.
+// SQLite has no native enums, so the "name" is a unique String with a
+// check-on-insert in app code. The 5 spec-defined values are seeded.
+
+model Department {
+  id          String   @id @default(cuid())
+  name        String   @unique // PRIVATE, FINANCIAL, EATING, KITCHEN, CAFE
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  categories    Category[]
+  transactions  Transaction[]
+}
+
+// --- Category (Feature 03 — top-level) -------------------------------------
+
+model Category {
+  id           String   @id @default(cuid())
+  name         String
+  type         String   @default("EXPENSE") // "INTAKE" | "EXPENSE" — SQLite has no enum
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  color        String?
+  icon         String?
+  description  String?
+  isDefault    Boolean  @default(false)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  subCategories SubCategory[]
+  userCategories UserCategory[]
+  transactions   Transaction[]
+  budgets        Budget[]
+
+  // Gotcha #4: (name, type, departmentId) unique. NULL counts as a value
+  // in SQLite, so two NULL departmentId rows with same name+type would
+  // conflict — that's the spec's intended behavior.
+  @@unique([name, type, departmentId])
+  @@index([type, isActive])
+  @@index([isActive])
+  @@index([departmentId])
+}
+
+// --- SubCategory (Feature 04 — user-private) -------------------------------
+// Per docs/backend/features/04-sub-categories.md § 1.3.
+// Each row is private to one user (ownerId) under a top-level Category (parentId).
+// Color, icon, notes are immutable post-creation (spec gotcha #8).
+
+model SubCategory {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  parentId  String
+  parent    Category @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  color     String?
+  icon      String?
+  notes     String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions Transaction[]
+
+  @@unique([ownerId, parentId, name])
+  @@index([parentId, isActive])
+  @@index([ownerId])
+}
+
+// --- UserCategory (many-to-many: which categories a USER can post under) ---
+
+model UserCategory {
+  userId     String
+  categoryId String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@id([userId, categoryId])
+  @@index([categoryId])
+}
+
+// --- Transaction (Feature 05) ----------------------------------------------
+// Per docs/backend/features/05-transactions.md § 1.3.
+// Money is Decimal(15,2) — high precision in DB; parsers/converters live in
+// src/lib/money.ts (parseDecimal, formatPKR).
+
+model Transaction {
+  id             String   @id @default(cuid())
+  type           String   // "INTAKE" | "EXPENSE"
+  amount         Decimal  // 15 total digits, 2 decimal places (per spec)
+  vendor         String?
+  description    String?
+  paymentMethod  String   @default("CASH") // CASH, BANK, CHEQUE, CARD, OTHER
+  status         String   @default("POSTED") // POSTED, REVERSED, RECONCILED
+  occurredAt     DateTime
+  periodKey      String   // "YYYY-MM" derived from occurredAt; indexed
+  postedById     String   // FK to User
+  postedBy       User     @relation("TransactionsPostedBy", fields: [postedById], references: [id], onDelete: Restrict)
+  // Scope references (from buildTransactionWhere)
+  categoryId     String
+  category       Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  subCategoryId  String?
+  subCategory    SubCategory? @relation(fields: [subCategoryId], references: [id], onDelete: SetNull)
+  departmentId   String?
+  department     Department? @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  receiptUrl     String?
+  notes          String?
+  tags           String?  // JSON-encoded array, per spec § 1.3
+  idempotencyKey String?  @unique
+  version        Int      @default(1) // for optimistic concurrency in PATCH
+  isDeleted      Boolean  @default(false) // soft delete
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  edits          TransactionEdit[]
+
+  @@index([postedById, occurredAt])
+  @@index([periodKey])
+  @@index([categoryId, occurredAt])
+  @@index([occurredAt])
+  @@index([status])
+  @@index([isDeleted])
+  @@index([type, periodKey])
+}
+
+// --- TransactionEdit (Feature 05 — PATCH audit trail) ----------------------
+// Every PATCH writes a row here before mutating. Read on GET /[id]/edits.
+// Skipped for the v1 M2 scope (PATCH itself is deferred per user instruction).
+
+model TransactionEdit {
+  id            String   @id @default(cuid())
+  transactionId String
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  editedById    String
+  editedBy      User     @relation("EditsBy", fields: [editedById], references: [id], onDelete: Restrict)
+  before        String   // JSON snapshot
+  after         String   // JSON snapshot
+  reason        String?
+  createdAt     DateTime @default(now())
+
+  @@index([transactionId, createdAt])
+  @@index([editedById])
+}
+
+// --- DayClose (Feature 06) --------------------------------------------------
+// Per docs/backend/features/06-close-day.md § 1.3.
+// Reconciles a user's counted cash vs the system-computed expected for a day.
+// Json fields store the per-method breakdown (CASH, BANK, JAZZCASH, EASYPAISA, CARD).
+// closedById is null when the user closes their own day.
+
+model DayClose {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation("DayClosesOwned", fields: [userId], references: [id], onDelete: Restrict)
+  closeDate        DateTime
+  countedByMethod  String   // JSON: { CASH, BANK, JAZZCASH, EASYPAISA, CARD }
+  expectedByMethod String   // JSON
+  varianceByMethod String   // JSON
+  totalCounted     Decimal
+  totalExpected    Decimal
+  totalVariance    Decimal
+  hasVariance      Boolean
+  notes            String?
+  closedById       String?
+  closedBy         User?    @relation("DayClosesClosedBy", fields: [closedById], references: [id], onDelete: SetNull)
+  reason           String?  // REQUIRED when admin closes on behalf (validated in app)
+  closedAt         DateTime @default(now())
+
+  @@unique([userId, closeDate])
+  @@index([closeDate])
+  @@index([userId, closeDate])
+}
+
+// --- PasswordResetToken ---------------------------------------------------
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([userId, usedAt])
+}
+
+// --- AuditLog -------------------------------------------------------------
+// Immutable. Per .agent/builder.json: no UPDATE/DELETE allowed at DB level.
+// We don't enforce that at the Prisma layer (SQLite doesn't support grants
+// the same way as Postgres), but the app code only ever calls .create().
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String
+  actor      User     @relation("ActorOnAuditLog", fields: [actorId], references: [id], onDelete: Restrict)
+  action     String   // e.g. "auth.login", "auth.logout", "auth.password_reset_request", "auth.password_reset_complete"
+  entityType String   // e.g. "User"
+  entityId   String
+  before     String?  // JSON-serialized
+  after      String?  // JSON-serialized
+  reason     String?
+  ip         String?
+  userAgent  String?
+  occurredAt DateTime @default(now())
+
+  @@index([actorId, occurredAt])
+  @@index([entityType, entityId])
+  @@index([occurredAt])
+  @@index([action])
+}
+
+// --- AuditLogArchive ------------------------------------------------------
+// Receives rows older than AUDIT_RETENTION_YEARS from the audit-archive cron
+// (F12 § 1.3 + § 3). Read-only to the rest of the app — admin can query via
+// the archive endpoint if needed.
+//
+// No FK to User (actorId is just a String here) so archived rows survive
+// even if a user is later deleted — audit must not lose history.
+
+model AuditLogArchive {
+  id         String   @id @default(cuid())
+  actorId    String?  // null = system actor
+  action     String
+  entityType String
+  entityId   String
+  before     String?  // JSON-serialized (already redacted at write time)
+  after      String?  // JSON-serialized
+  reason     String?
+  ip         String?
+  userAgent  String?
+  occurredAt DateTime // original timestamp from AuditLog
+  archivedAt DateTime @default(now())
+
+  @@index([occurredAt])
+  @@index([archivedAt])
+  @@index([entityType, entityId])
+}
+
+// --- JobRun --------------------------------------------------------------
+// Per docs/backend/features/14-cron.md § 1.3. One row per cron execution
+// (manual OR scheduled). triggeredBy distinguishes them.
+
+model JobRun {
+  id              String    @id @default(cuid())
+  jobName         String
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  status          String    @default("RUNNING") // "RUNNING" | "SUCCESS" | "FAILED" — SQLite has no native enum
+  itemsProcessed  Int       @default(0)
+  errorMessage    String?
+  triggeredBy     String    // "scheduler" | "manual"
+  triggeredById   String?
+  triggeredByUser User?     @relation(fields: [triggeredById], references: [id], onDelete: SetNull)
+
+  @@index([jobName, startedAt])
+  @@index([startedAt])
+  @@index([status, startedAt])
+}
+
+// --- Budget --------------------------------------------------------------
+// Per docs/backend/features/15-budgets.md § 1.3. Per-category monthly
+// spending caps. Unique on (categoryId, periodKey) so each category has at
+// most one budget per month. Currency stored but only PKR shown in v1
+// (gotcha #8 — schema-ready for multi-currency Stage 3).
+
+model Budget {
+  id         String   @id @default(cuid())
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+  periodKey  String   // "YYYY-MM" — e.g. "2026-07"
+  amount     Decimal
+  currency   String   @default("PKR")
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([categoryId, periodKey])
+  @@index([periodKey, isActive])
+}
+
+// --- Alert ---------------------------------------------------------------
+// Per docs/backend/features/15-budgets.md (and future F18 notifications).
+// In-app notifications for budget threshold events. Reads via the
+// notifications bell — no email / push in v1 (gotcha #10).
+//
+// AlertType values:
+//   BUDGET_THRESHOLD_80  — spend reached 80% of budget
+//   BUDGET_EXCEEDED_100  — spend exceeded budget (100%+)
+//
+// Idempotency: evaluateBudget() checks for an existing UNREAD alert with
+// the same (categoryId, periodKey, type) before inserting (gotcha #4).
+
+model Alert {
+  id          String    @id @default(cuid())
+  type        String    // e.g. "BUDGET_THRESHOLD_80"
+  recipientId String
+  recipient   User      @relation("OwnedAlerts", fields: [recipientId], references: [id], onDelete: Cascade)
+  categoryId  String?
+  periodKey   String?
+  payload     String    // JSON-serialized { percent, amount, categoryName, ... }
+  isRead      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  readAt      DateTime?
+
+  @@index([type, isRead])
+  @@index([categoryId, periodKey, type, isRead])
+  @@index([createdAt])
+}

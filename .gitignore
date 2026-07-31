@@ -1,0 +1,102 @@
+# Dependencies
+node_modules/
+server/node_modules/
+
+# Environment files (contain secrets)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.staging
+*.env
+
+# Build outputs
+.next/
+out/
+dist/
+build/
+
+# Logs
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory
+coverage/
+*.lcov
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Debug scripts and utilities (non-production)
+server/scripts/debug/
+server/scripts/legacy-tests/
+server/scripts/tests/
+*.mjs
+
+# Test artifacts
+test-results/
+playwright-report/
+test-logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Uploads (runtime files)
+server/public/uploads/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# Vite cache
+.vite/
+
+# React build
+src/build/
+
+# Agent and IDE configs
+.agent/
+.trae/
+
+# Root index.html (Vite handles this)
+index.html
+
+# Windows batch scripts
+*.bat
+*.cmd
+
+# Documentation (regenerateable)
+STACK_PLAN.md
+docs/
+
+# Word documents and text files
+*.docx
+*.txt
+FOP*.txt
+FOP*.docx
